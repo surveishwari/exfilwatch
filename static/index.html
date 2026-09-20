@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ExfilWatch — AI Output Security Layer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topnav">
+  <a class="brand" href="/"><span class="mark"></span>EXFIL<span class="accent">WATCH</span></a>
+  <nav class="links">
+    <a href="/" class="active">Home</a>
+    <a href="/demo">Test &amp; Investigate</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/docs-page">API Docs</a>
+  </nav>
+  <span class="status-pill"><span class="status-dot" id="statusDot"></span><span id="status">checking…</span></span>
+</header>
+
+<main>
+  <div class="eyebrow"><span class="dot"></span>Automated AI output security gateway</div>
+  <h1 style="font-size:48px;line-height:1.14;max-width:840px;margin:0 0 18px;">Secure every AI response before it reaches your users.</h1>
+  <p style="font-size:17.5px;color:var(--text-dim);line-height:1.65;max-width:640px;margin:0 0 8px;">ExfilWatch sits between your AI application and your users as a gateway — inspecting every outbound response automatically, decoding covert data-exfiltration channels, and enforcing policy in real time. No one pastes text into a dashboard. The protection is already running on every response.</p>
+
+  <section class="section-gap">
+    <div class="pipeline">
+      <div class="pipeline-node"><div class="pn-icon">01</div><div class="pn-title">Your AI App / Agent</div><div class="pn-sub">Generates a response</div></div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-node is-gateway"><div class="pn-icon">02</div><div class="pn-title">ExfilWatch Gateway</div><div class="pn-sub">base_url swap or API call</div></div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-node"><div class="pn-icon">03</div><div class="pn-title">Analyze</div><div class="pn-sub">Covert channels + sensitive data</div></div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-node"><div class="pn-icon">04</div><div class="pn-title">Risk + Evidence</div><div class="pn-sub">Fused, auditable score</div></div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-node"><div class="pn-icon">05</div><div class="pn-title">ALLOW / REVIEW / BLOCK</div><div class="pn-sub">Policy enforced automatically</div></div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-node"><div class="pn-icon">06</div><div class="pn-title">Your User</div><div class="pn-sub">Only receives a clean reply</div></div>
+    </div>
+  </section>
+
+  <div class="hero-actions" style="margin-top:32px;">
+    <a href="/docs-page" style="text-decoration:none;"><button>Integrate the gateway</button></a>
+    <a href="/dashboard" style="text-decoration:none;"><button class="secondary">See it protecting traffic</button></a>
+    <a href="/demo" style="text-decoration:none;"><button class="secondary">Test a payload yourself</button></a>
+  </div>
+
+  <section class="page-head" style="margin-top:72px;">
+    <h1 style="font-size:28px;">How the gateway works</h1>
+  </section>
+  <div class="workflow">
+    <div class="workflow-row">
+      <div class="workflow-num">1</div>
+      <div class="workflow-body"><h3>Integrate once</h3><p>OpenAI-compatible <code>base_url</code>, or a single API call from your existing backend. No SDK to learn, no change to how your app already talks to its model.</p></div>
+    </div>
+    <div class="workflow-row">
+      <div class="workflow-num">2</div>
+      <div class="workflow-body"><h3>Inspect automatically</h3><p>Every outbound LLM response passes through ExfilWatch before it reaches a user — nothing is manually reviewed to get this coverage.</p></div>
+    </div>
+    <div class="workflow-row">
+      <div class="workflow-num">3</div>
+      <div class="workflow-body"><h3>Detect covert exfiltration</h3><p>Hidden Unicode channels (including the technique behind GlassWorm), zero-click image-URL leaks, exposed secrets/PII, and unnamed/unpublished schemes via category-based analysis.</p></div>
+    </div>
+    <div class="workflow-row">
+      <div class="workflow-num">4</div>
+      <div class="workflow-body"><h3>Enforce policy</h3><p>ALLOW, REVIEW, or BLOCK — and on BLOCK, the underlying clean reply is independently re-scanned and served automatically, or escalated. A decision, not just an alert.</p></div>
+    </div>
+    <div class="workflow-row">
+      <div class="workflow-num">5</div>
+      <div class="workflow-body"><h3>Investigate &amp; audit</h3><p>Security teams see every incident, its evidence and risk derivation, and a tamper-evident hash-chained audit trail — on the Dashboard, after the fact, not in the request path.</p></div>
+    </div>
+  </div>
+
+  <section class="page-head" style="margin-top:72px;">
+    <h1 style="font-size:28px;">Test &amp; Investigate <span class="secondary-tag">secondary tools</span></h1>
+    <p>The Live Console and Scanner below are for trying a payload yourself or investigating a specific case — not the production workflow. In production, step 2 above runs on every response with nobody watching a screen.</p>
+  </section>
+  <div class="card-grid" style="grid-template-columns:1fr 1fr;">
+    <a href="/demo" style="text-decoration:none;color:inherit;">
+      <div class="feature-card">
+        <div class="label">Live attack console</div>
+        <p>Generate a real model reply, inject a covert payload, and watch it get decoded — useful for demos and hypothesis testing, not for routing real traffic.</p>
+      </div>
+    </a>
+    <a href="/dashboard" style="text-decoration:none;color:inherit;">
+      <div class="feature-card">
+        <div class="label">Investigation dashboard</div>
+        <p>Review incidents the gateway already caught automatically — audit trail, evidence, live validation and self red-team results.</p>
+      </div>
+    </a>
+  </div>
+</main>
+
+<footer>Python · FastAPI · hash-chained SQLite · Docker · CI — built solo for Hack Devengers 2.0</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

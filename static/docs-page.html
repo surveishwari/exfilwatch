@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API Docs — ExfilWatch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topnav">
+  <a class="brand" href="/"><span class="mark"></span>EXFILWATCH</a>
+  <nav class="links">
+    <a href="/">Home</a>
+    <a href="/demo">Test &amp; Investigate</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/docs-page" class="active">API Docs</a>
+  </nav>
+</header>
+
+<main>
+  <div class="page-head">
+    <div class="eyebrow"><span class="dot"></span>API reference</div>
+    <h1 style="font-size:36px;">Integrate in minutes.</h1>
+    <p>Tenant endpoints require header <code>X-API-Key</code> (ops endpoints are open). Full Swagger UI at <a href="/docs">/docs</a>.</p>
+  </div>
+
+  <section class="card" style="margin-bottom:12px;">
+    <h2>Mitigation, not just detection</h2>
+    <div class="sub">On BLOCK, <code>/api/live-attack</code> automatically re-scans the underlying clean reply and serves it if it independently passes — or escalates rather than guessing. See <code>remediation</code> in the response below.</div>
+    <pre class="code-block">{
+  "catch": { "action": "BLOCK", "risk_score": 100, ... },
+  "remediation": {
+    "attempted": true,
+    "remediated": true,
+    "escalated": false,
+    "remediated_reply": "The clean, independently-verified model reply.",
+    "remediation_catch": { "action": "ALLOW", "risk_score": 2, ... }
+  }
+}</pre>
+  </section>
+
+  <section class="card" style="margin-bottom:12px;">
+    <h2>Drop-in integration</h2>
+    <div class="sub">Call this before returning any LLM response to a user — 6 lines, any Python backend</div>
+    <pre class="code-block">import requests
+
+def guarded_reply(llm_text: str) -> str:
+    r = requests.post("http://localhost:8000/api/catch",
+        headers={"X-API-Key": "your-key"}, json={"text": llm_text}).json()
+    if r["action"] == "ALLOW":
+        return llm_text
+    raise ValueError(f"Blocked: {r['verdict']}")  # or route to /api/live-attack's remediation pattern</pre>
+  </section>
+
+  <section class="card" style="margin-bottom:12px;">
+    <div class="endpoint"><span class="method">POST</span><code>/api/catch</code></div>
+    <div class="sub">Scan text for covert channels and exposed sensitive data.</div>
+    <pre class="code-block">curl -X POST http://localhost:8000/api/catch \
+  -H "X-API-Key: demo-key-12345" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "the LLM response to check"}'</pre>
+  </section>
+
+  <section class="card" style="margin-bottom:12px;">
+    <div class="endpoint"><span class="method">POST</span><code>/api/live-attack</code></div>
+    <div class="sub">Calls a real LLM, tampers with the reply, then scans it — the full end-to-end demo.</div>
+    <pre class="code-block">curl -X POST http://localhost:8000/api/live-attack \
+  -H "X-API-Key: demo-key-12345" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How do I secure an API?",
+       "secret": "internal_api_key=sk-prod-7f3a9c2b",
+       "scheme": "variation_selector"}'</pre>
+  </section>
+
+  <section class="card" style="margin-bottom:12px;">
+    <div class="endpoint"><span class="method">POST</span><code>/api/hide</code></div>
+    <div class="sub">Demo/testing — encodes a secret into cover text ("zero_width" or "variation_selector").</div>
+  </section>
+
+  <section class="card" style="margin-bottom:12px;">
+    <div class="endpoint"><span class="method get">GET</span><code>/api/history?limit=30</code></div>
+    <div class="sub">Most recent logged scans, newest first.</div>
+  </section>
+
+  <section class="card" style="margin-bottom:12px;">
+    <div class="endpoint"><span class="method get">GET</span><code>/api/stats</code></div>
+    <div class="sub">Aggregate counts: total / blocked / review / allowed.</div>
+  </section>
+
+  <section class="card" style="margin-bottom:12px;">
+    <div class="endpoint"><span class="method get">GET</span><code>/api/validate</code></div>
+    <div class="sub">Runs detection against a labeled test corpus — real precision/recall/FPR, computed fresh every call.</div>
+  </section>
+
+  <section class="card" style="margin-bottom:12px;">
+    <div class="endpoint"><span class="method">POST</span><code>/v1/chat/completions</code></div>
+    <div class="sub">OpenAI-compatible gateway. Point any OpenAI SDK at this host; every completion is scanned and anything that isn't <code>ALLOW</code> is withheld (<code>finish_reason: "content_filter"</code>). Auth via <code>Authorization: Bearer &lt;key&gt;</code> or <code>X-API-Key</code>. <code>stream=true</code> is rejected — the gateway must see the whole reply before releasing it.</div>
+    <pre class="code-block">from openai import OpenAI
+client = OpenAI(base_url="https://YOUR-HOST/v1", api_key="YOUR_EXFILWATCH_KEY")
+r = client.chat.completions.create(model="any", messages=[{"role": "user", "content": "hi"}])
+# r.model_extra["exfilwatch"] -> {"withheld": false, "max_risk_score": 2, "findings": [...]}</pre>
+  </section>
+  <section class="card" style="margin-bottom:12px;">
+    <div class="endpoint"><span class="method get">GET</span><code>/api/audit/verify</code></div>
+    <div class="sub">Recomputes the SHA-256 hash chain over the whole audit log. Returns <code>valid</code>, <code>checked</code>, <code>first_bad_id</code> and <code>head</code> — anchor <code>head</code> externally to also detect truncation.</div>
+  </section>
+  <section class="card" style="margin-bottom:12px;">
+    <div class="endpoint"><span class="method get">GET</span><code>/metrics</code> · <code>/healthz</code> · <code>/readyz</code></div>
+    <div class="sub">Unauthenticated ops endpoints: Prometheus-format metrics (scans by action, latency histogram, 429 count), liveness and readiness. Rate limits return <code>429</code> with <code>Retry-After</code>; every response carries <code>X-Request-ID</code>.</div>
+  </section>
+
+  <section class="card">
+    <h2>Policy thresholds</h2>
+    <div class="sub">Configured server-side — per-tenant config in a real deployment</div>
+    <table>
+      <thead><tr><th>Combined risk score</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td>Hidden payload decoded, or score ≥ 50</td><td><span class="action-tag action-BLOCK">BLOCK</span></td></tr>
+        <tr><td>Score ≥ 15</td><td><span class="action-tag action-REVIEW">REVIEW</span></td></tr>
+        <tr><td>Otherwise</td><td><span class="action-tag action-ALLOW">ALLOW</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+
+<footer>Python · FastAPI · SQLite audit log — built for Hack Devengers 2.0</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

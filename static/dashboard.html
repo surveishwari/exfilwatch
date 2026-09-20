@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard — ExfilWatch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topnav">
+  <a class="brand" href="/"><span class="mark"></span>EXFILWATCH</a>
+  <nav class="links">
+    <a href="/">Home</a>
+    <a href="/demo">Test &amp; Investigate</a>
+    <a href="/dashboard" class="active">Dashboard</a>
+    <a href="/docs-page">API Docs</a>
+  </nav>
+  <span class="status-pill"><span class="status-dot" id="statusDot"></span><span id="status">checking…</span></span>
+</header>
+
+<main>
+  <div class="page-head">
+    <div class="eyebrow"><span class="dot"></span>Audit dashboard</div>
+    <h1 style="font-size:36px;">Every scan, on record.</h1>
+    <p>Persisted to a hash-chained SQLite log — refreshes automatically every 5 seconds.</p>
+  </div>
+
+  <div class="banner">
+    <span class="banner-dot"></span>
+    <div><b>Your AI traffic is already being protected automatically.</b> <span>Everything below happened through the gateway — no one manually reviewed these responses to catch this.</span></div>
+  </div>
+
+  <div class="stat-row" style="margin-bottom:28px;">
+    <div class="stat"><b id="statTotal">–</b><span>Total scans</span></div>
+    <div class="stat"><b id="statBlocked">–</b><span>Blocked</span></div>
+    <div class="stat"><b id="statReview">–</b><span>Flagged for review</span></div>
+    <div class="stat"><b id="statAllowed">–</b><span>Allowed</span></div>
+  </div>
+
+  <div class="panels" style="display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:22px;">
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+        <div><h2>Audit integrity</h2><div class="sub" style="margin-bottom:0;">SHA-256 hash chain over every logged scan</div></div>
+        <button class="secondary" id="chainBtn" onclick="verifyChain()">Verify now</button>
+      </div>
+      <div class="integrity" id="integrityBox"><span class="integrity-dot"></span><div><b id="integrityTitle">Checking…</b><div class="integrity-sub" id="integritySub"></div></div></div>
+    </section>
+    <section class="card">
+      <h2>Gateway telemetry</h2>
+      <div class="sub">Live from the Prometheus <code>/metrics</code> endpoint</div>
+      <div class="telemetry">
+        <div><b id="tmLatency">–</b><span>avg scan latency</span></div>
+        <div><b id="tmScans">–</b><span>scans this process</span></div>
+        <div><b id="tmLimited">–</b><span>requests rate-limited</span></div>
+        <div><b id="tmUptime">–</b><span>uptime</span></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="panels" style="display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:22px;">
+    <section class="card">
+      <h2>Risk score over time</h2>
+      <div class="sub">Last 30 scans, oldest to newest</div>
+      <svg id="riskChart" viewBox="0 0 400 140" style="width:100%;height:150px;" preserveAspectRatio="none"></svg>
+    </section>
+    <section class="card">
+      <h2>Action breakdown</h2>
+      <div class="sub">Share of ALLOW / REVIEW / BLOCK</div>
+      <svg id="actionChart" viewBox="0 0 400 140" style="width:100%;height:150px;"></svg>
+    </section>
+  </div>
+
+  <section class="card" style="margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+      <div><h2>Detector validation</h2><div class="sub" style="margin-bottom:0;">Runs the full pipeline against a labeled corpus — computed fresh on click.</div></div>
+      <button onclick="runValidation()" id="validateBtn">Run live validation</button>
+    </div>
+    <div id="validationLoading" style="display:none;margin-top:16px;"><div class="skeleton" style="height:70px;"></div></div>
+    <div id="validationError" style="display:none;margin-top:16px;"></div>
+    <div id="validationResults" style="display:none;margin-top:18px;">
+      <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
+        <div class="confusion-grid">
+          <div class="confusion-cell tp"><b id="cmTP">0</b><span>True positive</span></div>
+          <div class="confusion-cell fn"><b id="cmFN">0</b><span>False negative</span></div>
+          <div class="confusion-cell fp"><b id="cmFP">0</b><span>False positive</span></div>
+          <div class="confusion-cell tn"><b id="cmTN">0</b><span>True negative</span></div>
+        </div>
+        <div class="stat-row" style="flex:1;min-width:280px;">
+          <div class="stat"><b id="valPrecision">–</b><span>Precision</span></div>
+          <div class="stat"><b id="valRecall">–</b><span>Recall</span></div>
+          <div class="stat"><b id="valFPR">–</b><span>False positive rate</span></div>
+          <div class="stat"><b id="valAccuracy">–</b><span>Accuracy</span></div>
+        </div>
+      </div>
+      <div style="font-size:11.5px;color:var(--text-faint);margin-top:12px;" id="valSampleCount"></div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+      <div><h2>Self red team</h2><div class="sub" style="margin-bottom:0;">The detector attacks itself with real evasion attempts — fresh every click, nothing pre-computed.</div></div>
+      <button onclick="runRedteam()" id="redteamBtn">Run self red team</button>
+    </div>
+    <div id="redteamLoading" style="display:none;margin-top:16px;"><div class="skeleton" style="height:70px;"></div></div>
+    <div id="redteamError" style="display:none;margin-top:16px;"></div>
+    <div id="redteamResults" style="display:none;margin-top:18px;">
+      <div class="stat-row" style="margin-bottom:16px;">
+        <div class="stat"><b id="rtEvaded">–</b><span>Evasions succeeded</span></div>
+        <div class="stat"><b id="rtRate">–</b><span>Evasion rate</span></div>
+      </div>
+      <div id="rtAttackList"></div>
+      <div style="font-size:11.5px;color:var(--text-faint);margin-top:14px;" id="rtSummary"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Investigation trail</h2>
+    <div class="sub">Click a scan to expand its detail — search, filter, and highlight across the last 200</div>
+    <div class="search-bar">
+      <input type="text" id="logSearch" placeholder="Search text, verdict, or client…" oninput="applyLogFilter()">
+      <select id="logActionFilter" onchange="applyLogFilter()">
+        <option value="">All actions</option>
+        <option value="BLOCK">Blocked</option>
+        <option value="REVIEW">Flagged for review</option>
+        <option value="ALLOW">Allowed</option>
+      </select>
+      <input type="datetime-local" id="logSince" onchange="applyLogFilter()" title="Show scans after this time">
+      <button class="secondary" onclick="clearLogFilter()">Clear</button>
+    </div>
+    <div class="search-meta" id="logSearchMeta"></div>
+    <div id="timelineBox"></div>
+  </section>
+</main>
+
+<footer>Python · FastAPI · SQLite audit log — built for Hack Devengers 2.0</footer>
+
+<script src="/static/app.js"></script>
+<script>
+async function refreshAudit() {
+  const stats = await loadStats({total:"statTotal", blocked:"statBlocked", review:"statReview", allowed:"statAllowed"});
+  if (stats) drawActionChart(stats);
+  try {
+    const res = await fetch(API + "/api/history?limit=200", { headers: AUTH_HEADERS });
+    if (!res.ok) throw new Error("History request failed (" + res.status + ")");
+    window._historyCache = await res.json();
+    applyLogFilter();
+    const chartSlice = window._historyCache.slice(0, 30);
+    if (!chartSlice.length) { document.getElementById("riskChart").innerHTML = ''; return; }
+    drawRiskChart(chartSlice.slice().reverse());
+  } catch (e) {
+    showToast("Couldn't refresh audit log: " + e.message, "error", 6000);
+  }
+}
+
+/* ---- Log search / filter / highlight ---- */
+function applyLogFilter() {
+  const all = window._historyCache || [];
+  const query = (document.getElementById("logSearch").value || "").trim();
+  const actionFilter = document.getElementById("logActionFilter").value;
+  const sinceVal = document.getElementById("logSince").value;
+  const sinceTs = sinceVal ? new Date(sinceVal).getTime() / 1000 : null;
+
+  const q = query.toLowerCase();
+  const filtered = all.filter(r => {
+    if (actionFilter && r.action !== actionFilter) return false;
+    if (sinceTs != null && r.ts < sinceTs) return false;
+    if (q) {
+      const hay = `${r.text_preview} ${r.verdict} ${r.client || ""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  document.getElementById("logSearchMeta").textContent =
+    (query || actionFilter || sinceVal)
+      ? `Showing ${filtered.length} of ${all.length} scans`
+      : `Showing most recent ${Math.min(30, all.length)} of ${all.length} scans in trail`;
+
+  renderFilteredTimeline("timelineBox", (query || actionFilter || sinceVal) ? filtered : all.slice(0, 30), query);
+}
+
+function clearLogFilter() {
+  document.getElementById("logSearch").value = "";
+  document.getElementById("logActionFilter").value = "";
+  document.getElementById("logSince").value = "";
+  applyLogFilter();
+}
+
+/* Local variant of renderTimeline that highlights the search query —
+   kept separate from app.js's renderTimeline so other pages using that
+   shared function are unaffected. */
+function renderFilteredTimeline(containerId, rows, query) {
+  const el = document.getElementById(containerId);
+  if (!rows.length) {
+    el.innerHTML = '<div style="color:var(--text-faint);font-size:12px;padding:10px 0;">No scans match this filter.</div>';
+    return;
+  }
+  el.innerHTML = `<div class="timeline">` + rows.map((r, i) => {
+    const time = new Date(r.ts * 1000).toLocaleTimeString();
+    const full = new Date(r.ts * 1000).toLocaleString();
+    return `
+    <div class="tl-item" id="tl-${i}">
+      <div class="tl-dot action-${r.action}"></div>
+      <div class="tl-row" onclick="document.getElementById('tl-${i}').classList.toggle('open')">
+        <span class="tl-time">${time}</span>
+        <span class="tl-preview">${highlightMatch(r.text_preview, query)}</span>
+        <span class="tl-risk">${r.risk_score}</span>
+        <span class="action-tag action-${r.action}">${r.action}</span>
+        <span class="tl-chevron">▸</span>
+      </div>
+      <div class="tl-detail">
+        <b>Timestamp:</b> ${full}<br>
+        <b>Verdict:</b> ${highlightMatch(r.verdict, query)}<br>
+        <b>Text length:</b> ${r.text_length} chars<br>
+        <b>Client:</b> ${highlightMatch(r.client || "unauthenticated", query)}<br>
+        ${r.decoded_message ? `<b>Decoded payload:</b> <span class="mono" style="color:var(--crit);">${escapeHtml(r.decoded_message)}</span>` : `<b>Decoded payload:</b> none`}
+      </div>
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+function drawRiskChart(rows) {
+  const svg = document.getElementById("riskChart");
+  const W = 400, H = 140, PAD = 8;
+  if (!rows.length) { svg.innerHTML = ''; return; }
+  const n = rows.length;
+  const stepX = n > 1 ? (W - PAD*2) / (n - 1) : 0;
+  const yFor = score => H - PAD - (score / 100) * (H - PAD*2);
+  const points = rows.map((r, i) => `${PAD + i*stepX},${yFor(r.risk_score)}`).join(" ");
+  const colorFor = s => s >= 50 ? "#BD5138" : s >= 15 ? "#C1903D" : "#4C9A6E";
+  const dots = rows.map((r, i) => `<circle cx="${PAD + i*stepX}" cy="${yFor(r.risk_score)}" r="3" fill="${colorFor(r.risk_score)}"><title>${r.risk_score}</title></circle>`).join("");
+  svg.innerHTML = `
+    <line x1="${PAD}" y1="${yFor(50)}" x2="${W-PAD}" y2="${yFor(50)}" stroke="#3A2C26" stroke-dasharray="4 3" stroke-width="1"/>
+    <line x1="${PAD}" y1="${yFor(15)}" x2="${W-PAD}" y2="${yFor(15)}" stroke="#212831" stroke-dasharray="4 3" stroke-width="1"/>
+    <polyline points="${points}" fill="none" stroke="#5B93C4" stroke-width="2"/>
+    ${dots}`;
+}
+
+function drawActionChart(stats) {
+  const svg = document.getElementById("actionChart");
+  const bars = [
+    { label:"ALLOW", value: stats.allowed || 0, color:"#4C9A6E" },
+    { label:"REVIEW", value: stats.review || 0, color:"#C1903D" },
+    { label:"BLOCK", value: stats.blocked || 0, color:"#BD5138" },
+  ];
+  const barW = 70, gap = 40, baseY = 120, maxBarH = 90;
+  const maxVal = Math.max(1, ...bars.map(b => b.value));
+  let x = 45;
+  svg.innerHTML = bars.map(b => {
+    const h = (b.value / maxVal) * maxBarH;
+    const bar = `<rect x="${x}" y="${baseY - h}" width="${barW}" height="${h}" fill="${b.color}" rx="2"/>
+      <text x="${x + barW/2}" y="${baseY + 16}" text-anchor="middle" font-size="11" fill="#8994A1" font-family="IBM Plex Sans,sans-serif">${b.label}</text>
+      <text x="${x + barW/2}" y="${baseY - h - 6}" text-anchor="middle" font-size="12" font-weight="700" fill="#DFE4E9" font-family="IBM Plex Mono,monospace">${b.value}</text>`;
+    x += barW + gap;
+    return bar;
+  }).join("");
+}
+
+refreshAudit();
+setInterval(refreshAudit, 5000);
+
+async function verifyChain() {
+  const btn = document.getElementById("chainBtn"), box = document.getElementById("integrityBox");
+  btn.disabled = true; box.className = "integrity";
+  try {
+    const res = await fetch(API + "/api/audit/verify", { headers: AUTH_HEADERS });
+    if (!res.ok) throw new Error(res.status);
+    const v = await res.json();
+    box.className = "integrity " + (v.valid ? "ok" : "bad");
+    document.getElementById("integrityTitle").textContent = v.valid ? "Chain intact" : "Tampering detected";
+    document.getElementById("integritySub").textContent = v.valid
+      ? `${v.checked} entries verified · head ${v.head.slice(0, 12)}…`
+      : `First inconsistent entry: #${v.first_bad_id} (${v.checked} checked before failure)`;
+  } catch (e) {
+    document.getElementById("integrityTitle").textContent = "Could not verify";
+    document.getElementById("integritySub").textContent = "Audit endpoint unreachable.";
+    showToast("Could not verify audit chain — endpoint unreachable.", "error");
+  } finally { btn.disabled = false; }
+}
+
+function _fmtUptime(s) { return s < 90 ? s + "s" : s < 5400 ? Math.round(s / 60) + "m" : (s / 3600).toFixed(1) + "h"; }
+
+async function loadTelemetry() {
+  try {
+    const t = await (await fetch(API + "/metrics")).text();
+    const num = (re) => { const m = t.match(re); return m ? Number(m[1]) : 0; };
+    const cnt = num(/^exfilwatch_scan_seconds_count (\d+)/m), sum = num(/^exfilwatch_scan_seconds_sum ([\d.]+)/m);
+    document.getElementById("tmLatency").textContent = cnt ? (sum / cnt * 1000).toFixed(1) + " ms" : "–";
+    document.getElementById("tmScans").textContent = cnt;
+    document.getElementById("tmLimited").textContent = num(/^exfilwatch_rate_limited_total (\d+)/m);
+    document.getElementById("tmUptime").textContent = _fmtUptime(num(/^exfilwatch_uptime_seconds (\d+)/m));
+  } catch (e) { /* metrics are optional; leave placeholders */ }
+}
+
+verifyChain();
+loadTelemetry();
+setInterval(loadTelemetry, 5000);
+
+async function runValidation() {
+  const btn = document.getElementById("validateBtn");
+  btn.disabled = true;
+  document.getElementById("validationLoading").style.display = "block";
+  document.getElementById("validationResults").style.display = "none";
+  clearMalfunction("validationError");
+  try {
+    const res = await fetch(API + "/api/validate", { headers: AUTH_HEADERS });
+    if (!res.ok) throw new Error("Validation request failed (" + res.status + ")");
+    const v = await res.json();
+
+    document.getElementById("valPrecision").textContent = (v.metrics.precision * 100).toFixed(0) + "%";
+    document.getElementById("valRecall").textContent = (v.metrics.recall * 100).toFixed(0) + "%";
+    document.getElementById("valFPR").textContent = (v.metrics.false_positive_rate * 100).toFixed(0) + "%";
+    document.getElementById("valAccuracy").textContent = (v.metrics.accuracy * 100).toFixed(0) + "%";
+    document.getElementById("valSampleCount").textContent =
+      `${v.sample_counts.total} labeled samples (${v.sample_counts.malicious} malicious, ${v.sample_counts.benign} benign)`;
+
+    document.getElementById("cmTP").textContent = v.confusion_matrix.true_positive;
+    document.getElementById("cmFN").textContent = v.confusion_matrix.false_negative;
+    document.getElementById("cmFP").textContent = v.confusion_matrix.false_positive;
+    document.getElementById("cmTN").textContent = v.confusion_matrix.true_negative;
+
+    document.getElementById("validationResults").style.display = "block";
+    showToast("Validation complete — " + v.sample_counts.total + " samples checked", "success", 3000);
+  } catch (e) {
+    showMalfunction("validationError", {
+      title: "Validation run failed",
+      severity: "error",
+      whatWentWrong: e.message,
+      recommendedAction: "Confirm the server is running and /api/validate is reachable with your API key.",
+      nextStep: "Click \"Run live validation\" again once the server responds normally.",
+    });
+  } finally {
+    btn.disabled = false;
+    document.getElementById("validationLoading").style.display = "none";
+  }
+}
+
+async function runRedteam() {
+  const btn = document.getElementById("redteamBtn");
+  btn.disabled = true;
+  document.getElementById("redteamLoading").style.display = "block";
+  document.getElementById("redteamResults").style.display = "none";
+  clearMalfunction("redteamError");
+  try {
+    const res = await fetch(API + "/api/redteam", { headers: AUTH_HEADERS });
+    if (!res.ok) throw new Error("Red team request failed (" + res.status + ")");
+    const rt = await res.json();
+
+    document.getElementById("rtEvaded").textContent = rt.evasions_succeeded + " / " + rt.total_attacks;
+    document.getElementById("rtRate").textContent = (rt.evasion_rate * 100).toFixed(0) + "%";
+
+    const list = document.getElementById("rtAttackList");
+    list.innerHTML = rt.attacks.map(a => {
+      const tag = a.evaded
+        ? '<span class="action-tag" style="background:var(--crit-bg);color:var(--crit);">EVADED</span>'
+        : '<span class="action-tag" style="background:rgba(16,140,90,0.12);color:var(--safe);">CAUGHT</span>';
+      const mitigation = a.mitigation
+        ? `<div style="font-size:11px;color:var(--text-faint);margin-top:4px;">Mitigation: ${escapeHtml(a.mitigation)}</div>`
+        : "";
+      return `<div class="finding-row" style="display:block;padding:10px 0;">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+          <div style="flex:1;">
+            <div style="font-weight:600;">${escapeHtml(a.name)}</div>
+            <div style="font-size:11.5px;color:var(--text-dim);margin-top:2px;">${escapeHtml(a.description)}</div>
+          </div>
+          ${tag}
+        </div>
+        ${mitigation}
+      </div>`;
+    }).join("");
+
+    document.getElementById("rtSummary").textContent = rt.summary;
+    document.getElementById("redteamResults").style.display = "block";
+    showToast("Self red team complete — " + rt.evasions_succeeded + " evasion(s) found", rt.evasions_succeeded ? "warning" : "success", 3500);
+  } catch (e) {
+    showMalfunction("redteamError", {
+      title: "Self red team run failed",
+      severity: "error",
+      whatWentWrong: e.message,
+      recommendedAction: "Confirm the server is running and /api/redteam is reachable with your API key.",
+      nextStep: "Click \"Run self red team\" again once the server responds normally.",
+    });
+  } finally {
+    btn.disabled = false;
+    document.getElementById("redteamLoading").style.display = "none";
+  }
+}
+</script>
+</body>
+</html>

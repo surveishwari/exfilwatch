@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Console — ExfilWatch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .reply-pair { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:18px; }
+  .reply-box { background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:16px 17px; font-size:14px; line-height:1.7; white-space:pre-wrap; word-break:break-word; min-height:64px; }
+  .error-box { margin-top:20px; padding:16px 18px; background:var(--warn-bg); border:1px solid rgba(208,160,72,.4); border-radius:var(--radius-sm); font-size:14px; color:var(--warn); }
+  .decision-badge { display:inline-flex; align-items:center; gap:9px; font-family:var(--font-mono); font-weight:700; font-size:15.5px; padding:11px 20px; border-radius:var(--radius-sm); margin-top:6px; }
+  .decision-badge.allow { background:var(--safe-bg); color:var(--safe); border:1px solid rgba(70,165,120,.4); }
+  .decision-badge.review { background:var(--accent-dim); color:var(--accent-bright); border:1px solid var(--accent-dim); }
+  .decision-badge.block { background:var(--crit-bg); color:var(--crit); border:1px solid rgba(219,98,72,.4); }
+  .risk-decision-row { display:flex; align-items:center; gap:32px; margin-top:20px; flex-wrap:wrap; }
+  .mitigation-card { border:1px solid var(--border); border-radius:var(--radius-sm); padding:18px 20px; background:var(--bg); }
+  .mitigation-card.ok { border-color:rgba(70,165,120,.4); }
+  .mitigation-card.escalated { border-color:rgba(219,98,72,.4); }
+  .mitigation-title { font-weight:700; font-size:14.5px; display:flex; align-items:center; gap:9px; margin-bottom:8px; }
+  .mitigation-title.ok { color:var(--safe); }
+  .mitigation-title.escalated { color:var(--crit); }
+  .mitigation-steps { font-size:13.5px; color:var(--text-dim); line-height:2; margin:10px 0 0; padding-left:0; list-style:none; }
+  .mitigation-steps li::before { content:"→ "; color:var(--text-faint); }
+</style>
+</head>
+<body>
+
+<header class="topnav">
+  <a class="brand" href="/"><span class="mark"></span>EXFILWATCH</a>
+  <nav class="links">
+    <a href="/">Home</a>
+    <a href="/demo" class="active">Test &amp; Investigate</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/docs-page">API Docs</a>
+  </nav>
+  <span class="status-pill"><span class="status-dot" id="statusDot"></span><span id="status">checking…</span></span>
+</header>
+
+<main>
+  <div class="page-head">
+    <div class="eyebrow"><span class="dot"></span>Test &amp; Investigate — secondary tool</div>
+    <h1 style="font-size:36px;">See the hidden signal.</h1>
+    <p>This page is for trying a payload yourself. In production, this same pipeline runs automatically on every response through the gateway — nobody pastes text here.</p>
+  </div>
+
+  <section class="card">
+    <div class="stepper" id="attackStepper"></div>
+
+    <div style="margin-top:20px;">
+      <label for="question">Question sent to the model</label>
+      <textarea id="question" rows="2">What are three practical ways to secure an API?</textarea>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div>
+          <label for="secret">Secret to exfiltrate</label>
+          <input type="text" id="secret" value="internal_api_key=sk-prod-7f3a9c2b">
+        </div>
+        <div>
+          <label for="scheme">Encoding technique</label>
+          <select id="scheme">
+            <option value="variation_selector">Variation selectors (GlassWorm)</option>
+            <option value="zero_width">Zero-width characters</option>
+            <option value="unicode_tags">Unicode Tags block ("ASCII smuggling")</option>
+            <option value="markdown_image">Zero-click markdown image URL</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:18px;">
+        <button onclick="launchAttack()">Launch attack</button>
+        <span id="liveLatency" class="mono" style="font-size:11px;color:var(--text-faint);"></span>
+      </div>
+    </div>
+
+    <div id="loadingBox" style="display:none;margin-top:18px;">
+      <div class="skeleton" style="height:56px;margin-bottom:8px;"></div>
+      <div class="skeleton" style="height:14px;width:40%;"></div>
+    </div>
+    <div id="errorBox" class="error-box" style="display:none;"></div>
+
+    <div class="readout" id="resultBox">
+      <div class="label">01 — Request: clean vs. tampered reply</div>
+      <div class="reply-pair">
+        <div><div style="font-size:10.5px;color:var(--text-faint);margin-bottom:5px;text-transform:uppercase;">Model's real reply</div><div class="reply-box" id="cleanReply"></div></div>
+        <div><div style="font-size:10.5px;color:var(--text-faint);margin-bottom:5px;text-transform:uppercase;">Same reply, tampered — reads identical <button type="button" class="xray-toggle" id="xrayBtn" onclick="toggleXray()" aria-pressed="false">X-ray</button></div><div class="reply-box" id="tamperedReply"></div></div>
+      </div>
+
+      <div class="label" style="margin-top:20px;">02 — Detection: the hidden signal made visible</div>
+      <div class="signal-view" id="signalView"></div>
+      <div class="signal-legend"><span><span class="sw" style="background:var(--crit);"></span><span id="signalCount">0</span> invisible characters found</span></div>
+      <div id="decodedBox"></div>
+
+      <div class="label" style="margin-top:20px;">03 — Evidence: how the score was derived</div>
+      <div id="evidenceBox"></div>
+      <ul class="reasons" id="reasonsList"></ul>
+      <div id="sensitiveBox" style="margin-top:10px;"></div>
+
+      <div class="label" style="margin-top:20px;">04–05 — Risk & policy decision</div>
+      <div class="risk-decision-row">
+        <div class="gauge-wrap" id="gaugeBox"></div>
+        <div id="decisionBadge"></div>
+      </div>
+
+      <div id="mitigationSection" style="display:none;">
+        <div class="label" style="margin-top:20px;">06 — Mitigation: what happens next</div>
+        <div id="mitigationBox"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:16px;">
+    <h2>Scanner — test anything</h2>
+    <div class="sub">Paste your own text, or try a scheme this project has never named</div>
+    <textarea id="scanText" rows="3">Sure, here is my email jane.doe@company.com and API key sk-abcdef1234567890xyz</textarea>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+      <button onclick="runScan()">Scan this text</button>
+      <button class="secondary" onclick="fillUnknownScheme()">Load unpublished scheme</button>
+      <button class="secondary" onclick="fillClean()">Load clean sentence</button>
+      <span id="scanLatency" class="mono" style="align-self:center;font-size:11px;color:var(--text-faint);"></span>
+    </div>
+
+    <div class="readout" id="scanResultBox">
+      <div class="signal-view" id="scanSignalView"></div>
+      <div class="risk-decision-row">
+        <div class="gauge-wrap" id="scanGaugeBox"></div>
+        <div id="scanDecisionBadge"></div>
+      </div>
+      <div id="scanDecodedBox"></div>
+      <ul class="reasons" id="scanReasonsList"></ul>
+      <div id="scanSensitiveBox" style="margin-top:10px;"></div>
+      <div class="label" style="margin-top:16px;">Evidence</div>
+      <div id="scanEvidenceBox"></div>
+    </div>
+  </section>
+</main>
+
+<footer>Python · FastAPI · Real LLM call via Groq — built for Hack Devengers 2.0</footer>
+
+<script src="/static/app.js"></script>
+<script>
+renderStepper("attackStepper");
+
+function decisionBadgeHtml(action) {
+  const cls = action === "BLOCK" ? "block" : action === "REVIEW" ? "review" : "allow";
+  const icon = action === "BLOCK" ? "✕" : action === "REVIEW" ? "!" : "✓";
+  return `<div class="decision-badge ${cls}">${icon} ${action}</div>`;
+}
+
+function renderMitigation(remediation, action) {
+  const section = document.getElementById("mitigationSection");
+  const box = document.getElementById("mitigationBox");
+
+  if (action === "ALLOW") {
+    section.style.display = "none";
+    setStepper("attackStepper", "mitigation", "safe");
+    return;
+  }
+
+  section.style.display = "block";
+
+  if (!remediation || !remediation.attempted) {
+    box.innerHTML = `<div class="mitigation-card"><div class="mitigation-title">No action taken</div></div>`;
+    setStepper("attackStepper", "mitigation");
+    return;
+  }
+
+  if (remediation.remediated) {
+    box.innerHTML = `
+      <div class="mitigation-card ok">
+        <div class="mitigation-title ok">✓ Remediated automatically</div>
+        <ul class="mitigation-steps">
+          <li>Tampered reply blocked — payload never reached the user</li>
+          <li>Underlying model reply re-scanned independently (not assumed safe)</li>
+          <li>Re-scan passed with a clean verdict — safe reply delivered instead</li>
+        </ul>
+        <div class="reply-box" style="margin-top:10px;">${escapeHtml(remediation.remediated_reply)}</div>
+      </div>`;
+    setStepper("attackStepper", "mitigation", "safe");
+  } else {
+    box.innerHTML = `
+      <div class="mitigation-card escalated">
+        <div class="mitigation-title escalated">✕ Escalated — no safe fallback found</div>
+        <ul class="mitigation-steps">
+          <li>Tampered reply blocked — payload never reached the user</li>
+          <li>Underlying model reply re-scanned independently</li>
+          <li>Re-scan also failed (risk ${remediation.remediation_catch?.risk_score ?? '?'}) — the model itself exposed something in plain text</li>
+          <li>Routed to human review instead of guessing — no unverified reply was ever served</li>
+        </ul>
+      </div>`;
+    setStepper("attackStepper", "mitigation", "flagged");
+  }
+}
+
+function renderSensitive(targetId, findings) {
+  const sensBox = document.getElementById(targetId);
+  if (findings && findings.length) {
+    let html = `<div class="label">Sensitive data found (${findings.length})</div>`;
+    findings.forEach(f => {
+      const confColor = f.confidence === "high" ? "var(--safe)" : "var(--accent)";
+      html += `<div class="finding-row">
+        <span>${escapeHtml(f.type)} — ${escapeHtml(f.match_preview)}
+          <div style="font-size:10px;color:${confColor};margin-top:2px;">${escapeHtml(f.confidence).toUpperCase()} CONFIDENCE · ${escapeHtml(f.detection_method)}</div>
+        </span>
+        <span class="sev sev-${f.severity}">SEV ${f.severity}</span>
+      </div>`;
+    });
+    sensBox.innerHTML = html;
+  } else {
+    sensBox.innerHTML = '<div style="color:var(--text-faint);font-size:12px;">No exposed secrets or PII in visible text.</div>';
+  }
+}
+
+function fillUnknownScheme() {
+  const hidden = "\u180E".repeat(15);
+  document.getElementById("scanText").value =
+    "Sure" + hidden + ", here is the summary you asked for regarding today's meeting.";
+}
+function fillClean() {
+  document.getElementById("scanText").value =
+    "This is a perfectly ordinary sentence with nothing hidden inside it at all.";
+}
+
+async function runScan() {
+  const text = document.getElementById("scanText").value;
+  if (!text.trim()) return;
+  const btn = event.target;
+  btn.disabled = true;
+  const t0 = performance.now();
+  try {
+    const res = await fetch(API + "/api/catch", { method: "POST", headers: AUTH_HEADERS, body: JSON.stringify({ text }) });
+    const elapsed = (performance.now() - t0).toFixed(1);
+    document.getElementById("scanLatency").textContent = `${elapsed}ms round-trip`;
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    const c = await res.json();
+
+    renderSignalView("scanSignalView", text);
+    renderGauge("scanGaugeBox", Math.max(c.risk_score, c.sensitive_risk_score));
+    document.getElementById("scanDecisionBadge").innerHTML = decisionBadgeHtml(c.action);
+
+    const decodedBox = document.getElementById("scanDecodedBox");
+    decodedBox.innerHTML = "";
+    if (c.decoded_message) {
+      const div = document.createElement("div");
+      div.className = "decoded";
+      decodedBox.appendChild(div);
+      revealDecoded(div, "Decoded: ", c.decoded_message, c.technique ? "  (technique: " + c.technique + ")" : "");
+    }
+
+    const list = document.getElementById("scanReasonsList");
+    list.innerHTML = "";
+    (c.reasons || []).forEach(r => { const li = document.createElement("li"); li.textContent = r; list.appendChild(li); });
+
+    renderSensitive("scanSensitiveBox", c.sensitive_findings);
+    renderWaterfall("scanEvidenceBox", c.evidence);
+
+    document.getElementById("scanResultBox").classList.add("show");
+    showToast("Scan complete — " + c.action, c.action === "ALLOW" ? "success" : "warning", 3000);
+  } catch (e) {
+    document.getElementById("scanLatency").textContent = "Error: " + e.message;
+    showToast("Scan failed: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function toggleXray() {
+  const btn = document.getElementById("xrayBtn"), box = document.getElementById("tamperedReply");
+  if (window._tampered == null) return;
+  const on = !btn.classList.contains("on");
+  btn.classList.toggle("on", on); btn.setAttribute("aria-pressed", String(on));
+  if (on) renderSignalView("tamperedReply", window._tampered); else box.textContent = window._tampered;
+}
+
+async function launchAttack() {
+  const question = document.getElementById("question").value;
+  const secret = document.getElementById("secret").value;
+  const scheme = document.getElementById("scheme").value;
+  const btn = event.target;
+
+  document.getElementById("errorBox").style.display = "none";
+  document.getElementById("resultBox").classList.remove("show");
+  if (!question.trim()) { showToast("Enter a question first.", "warning"); return; }
+
+  btn.disabled = true;
+  document.getElementById("loadingBox").style.display = "block";
+  setStepper("attackStepper", "request");
+  const t0 = performance.now();
+
+  try {
+    const res = await fetch(API + "/api/live-attack", { method: "POST", headers: AUTH_HEADERS, body: JSON.stringify({ question, secret, scheme }) });
+    document.getElementById("liveLatency").textContent = `${(performance.now() - t0).toFixed(0)}ms — includes the real model call`;
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      if (res.status === 503) throw new Error("Backend not connected to a live model. " + (err.detail || "Set GROQ_API_KEY on the server."));
+      throw new Error(err.detail || `Request failed (${res.status})`);
+    }
+    const data = await res.json();
+    const c = data.catch;
+
+    document.getElementById("cleanReply").textContent = data.clean_reply;
+    document.getElementById("tamperedReply").textContent = data.tampered_reply;
+    window._tampered = data.tampered_reply;
+    const xb = document.getElementById("xrayBtn"); xb.classList.remove("on"); xb.setAttribute("aria-pressed", "false");
+    setStepper("attackStepper", "detection");
+
+    const hiddenCount = renderSignalView("signalView", data.tampered_reply);
+    document.getElementById("signalCount").textContent = hiddenCount;
+
+    const decodedBox = document.getElementById("decodedBox");
+    decodedBox.innerHTML = "";
+    if (c.decoded_message) {
+      const div = document.createElement("div");
+      div.className = "decoded";
+      div.textContent = "Decoded: " + c.decoded_message + (c.technique ? "  (technique: " + c.technique + ")" : "");
+      decodedBox.appendChild(div);
+    }
+    setStepper("attackStepper", "evidence");
+
+    const list = document.getElementById("reasonsList");
+    list.innerHTML = "";
+    (c.reasons || []).forEach(r => { const li = document.createElement("li"); li.textContent = r; list.appendChild(li); });
+    renderSensitive("sensitiveBox", c.sensitive_findings);
+    renderWaterfall("evidenceBox", c.evidence);
+    setStepper("attackStepper", "risk");
+
+    const overallScore = Math.max(c.risk_score, c.sensitive_risk_score);
+    renderGauge("gaugeBox", overallScore);
+
+    const finalState = c.action === "ALLOW" ? "safe" : "flagged";
+    setStepper("attackStepper", "decision", finalState);
+    document.getElementById("decisionBadge").innerHTML = decisionBadgeHtml(c.action);
+
+    renderMitigation(data.remediation, c.action);
+
+    document.getElementById("resultBox").classList.add("show");
+    showToast("Live attack complete — " + c.action, c.action === "ALLOW" ? "success" : "warning", 3000);
+  } catch (e) {
+    const isBackendDown = /backend not connected/i.test(e.message);
+    showMalfunction("errorBox", {
+      title: isBackendDown ? "Live model unreachable" : "Live attack request failed",
+      severity: isBackendDown ? "warning" : "error",
+      whatWentWrong: e.message,
+      recommendedAction: isBackendDown
+        ? "Set GROQ_API_KEY as an environment variable on the machine running the server, then restart it."
+        : "Check that the FastAPI server is running and reachable, and that your API key header is correct.",
+      nextStep: isBackendDown
+        ? "Once the key is set, click Launch attack again."
+        : "Retry the request. If it keeps failing, check the server terminal for the full error.",
+    });
+    setStepper("attackStepper", "request");
+  } finally {
+    btn.disabled = false;
+    document.getElementById("loadingBox").style.display = "none";
+  }
+}
+</script>
+</body>
+</html>
